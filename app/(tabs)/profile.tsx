@@ -1,11 +1,11 @@
-import { useRouter } from 'expo-router';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { useRouter, type Href } from 'expo-router';
+import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { useAuth } from '@/core/auth/AuthContext';
 
 export default function ProfileScreen() {
   const router = useRouter();
-  const { profile, user, signOut } = useAuth();
+  const { profile, user, signOut, canCreateContent } = useAuth();
 
   async function onSignOut() {
     await signOut();
@@ -17,6 +17,18 @@ export default function ProfileScreen() {
       <Text style={styles.label}>Вы вошли как</Text>
       <Text style={styles.value}>{profile?.username || user?.email || 'Пользователь'}</Text>
       {user?.email ? <Text style={styles.email}>{user.email}</Text> : null}
+
+      <Pressable
+        style={styles.link}
+        onPress={() => {
+          if (!canCreateContent) {
+            Alert.alert('RENTO', 'Создание объявлений недоступно для вашего аккаунта.');
+            return;
+          }
+          router.push('/my-listings' as Href);
+        }}>
+        <Text style={styles.linkText}>Мои объявления</Text>
+      </Pressable>
 
       <Pressable style={styles.link} onPress={() => router.push('/terms')}>
         <Text style={styles.linkText}>Правила площадки</Text>

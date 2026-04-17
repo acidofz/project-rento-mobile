@@ -17,3 +17,11 @@ export function mapNetworkError(e: unknown): string {
   }
   return GENERIC;
 }
+
+export function mapQueryError(error: Error | null | undefined): string {
+  if (!error) return GENERIC;
+  const m = error.message;
+  if (/fetch|network|failed|load failed/i.test(m)) return 'Нет соединения. Проверьте интернет.';
+  if (/jwt|session|not authenticated/i.test(m)) return 'Войдите ещё раз.';
+  return 'Не удалось загрузить данные. Попробуйте позже.';
+}

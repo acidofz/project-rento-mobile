@@ -11,6 +11,8 @@ type AuthContextValue = {
   session: Session | null;
   user: User | null;
   profile: Profile | null;
+  /** Можно создавать объявления и писать в чат (при null профиле — да, пока не загрузится; при blocked сессия сбрасывается). */
+  canCreateContent: boolean;
   signIn: (email: string, password: string) => Promise<{ error?: string }>;
   signUp: (email: string, password: string, username: string) => Promise<{ error?: string }>;
   signOut: () => Promise<void>;
@@ -146,18 +148,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setProfile(p);
   }, [session?.user?.id]);
 
+  const canCreateContent = useMemo(() => {
+    if (!session) return false;
+    if (profile?.is_blocked) return false;
+    return true;
+  }, [session, profile?.is_blocked]);
+
   const value = useMemo<AuthContextValue>(
     () => ({
       initialized,
       session,
       user: session?.user ?? null,
       profile,
+      canCreateContent,
       signIn,
       signUp,
       signOut,
       refreshProfile,
     }),
-    [initialized, session, profile, signIn, signUp, signOut, refreshProfile]
+    [initialized, session, profile, canCreateContent, signIn, signUp, signOut, refreshProfile]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
