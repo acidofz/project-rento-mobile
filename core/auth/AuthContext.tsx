@@ -40,6 +40,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const applySession = useCallback(async (next: Session | null) => {
     setSession(next);
+    const sb = tryGetSupabase();
+    sb?.realtime.setAuth(next?.access_token ?? null);
+
     const uid = next?.user?.id;
     if (!uid) {
       setProfile(null);
@@ -53,6 +56,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       );
       const sb = tryGetSupabase();
       await sb?.auth.signOut();
+      sb?.realtime.setAuth(null);
       setSession(null);
       setProfile(null);
       return;
@@ -136,6 +140,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signOut = useCallback(async () => {
     const sb = tryGetSupabase();
+    sb?.realtime.setAuth(null);
     await sb?.auth.signOut();
     setProfile(null);
     setSession(null);

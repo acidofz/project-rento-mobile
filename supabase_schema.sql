@@ -220,12 +220,35 @@ for insert
 to public
 with check (true);
 
+-- Id чатов, где пользователь — участник. SECURITY DEFINER обходит RLS на chat_members,
+-- иначе политика SELECT с подзапросом к той же таблице даёт бесконечную рекурсию.
+create or replace function public.current_user_chat_ids()
+returns table (chat_id bigint)
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select cm.chat_id
+  from public.chat_members cm
+  where cm.user_id = auth.uid();
+$$;
+
+revoke all on function public.current_user_chat_ids() from public;
+grant execute on function public.current_user_chat_ids() to authenticated;
+
 drop policy if exists "Members view chat_members" on public.chat_members;
 create policy "Members view chat_members"
 on public.chat_members
 for select
 to authenticated
-using (user_id = auth.uid());
+using (
+    exists (
+        select 1
+        from public.current_user_chat_ids() u
+        where u.chat_id = chat_members.chat_id
+    )
+);
 
 drop policy if exists "Users insert own chat_members" on public.chat_members;
 create policy "Users insert own chat_members"
@@ -258,6 +281,46 @@ with check (
         where cm.chat_id = messages.chat_id and cm.user_id = auth.uid()
     )
 );
+
+-- Диалог 1:1: найти существующий чат ровно из двух участников или создать новый (обход RLS при поиске).
+create or replace function public.find_or_create_peer_chat(p_peer_id uuid)
+returns bigint
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+    v_uid uuid := auth.uid();
+    v_chat_id bigint;
+begin
+    if v_uid is null then
+        raise exception 'not authenticated';
+    end if;
+    if p_peer_id = v_uid then
+        raise exception 'invalid peer';
+    end if;
+
+    select c.id into v_chat_id
+    from public.chats c
+    where exists (select 1 from public.chat_members m1 where m1.chat_id = c.id and m1.user_id = v_uid)
+      and exists (select 1 from public.chat_members m2 where m2.chat_id = c.id and m2.user_id = p_peer_id)
+      and (select count(*)::int from public.chat_members cm where cm.chat_id = c.id) = 2
+    order by c.id desc
+    limit 1;
+
+    if v_chat_id is not null then
+        return v_chat_id;
+    end if;
+
+    insert into public.chats (created_by) values (v_uid) returning id into v_chat_id;
+    insert into public.chat_members (chat_id, user_id) values (v_chat_id, v_uid);
+    insert into public.chat_members (chat_id, user_id) values (v_chat_id, p_peer_id);
+    return v_chat_id;
+end;
+$$;
+
+revoke all on function public.find_or_create_peer_chat(uuid) from public;
+grant execute on function public.find_or_create_peer_chat(uuid) to authenticated;
 
 -- Listing cover image (public URL in this column)
 alter table public.listings add column if not exists image_url text;
@@ -312,3 +375,25 @@ using (
     bucket_id = 'listing-images'
     and name like auth.uid()::text || '/%'
 );
+
+-- Realtime: INSERT в messages для клиента (postgres_changes). В Dashboard: Database → Publications.
+do $$
+begin
+    if exists (select 1 from pg_publication where pubname = 'supabase_realtime') then
+        if not exists (
+            select 1
+            from pg_publication_tables
+            where pubname = 'supabase_realtime'
+              and schemaname = 'public'
+              and tablename = 'messages'
+        ) then
+            alter publication supabase_realtime add table public.messages;
+        end if;
+    end if;
+exception
+    when duplicate_object then
+        null;
+    when undefined_object then
+        raise notice 'Publication supabase_realtime not found (non-hosted Postgres?).';
+end;
+$$;

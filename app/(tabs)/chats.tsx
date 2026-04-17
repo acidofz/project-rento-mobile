@@ -1,20 +1,193 @@
-import { StyleSheet, Text, View } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
+import { useRouter, type Href } from 'expo-router';
+import { useCallback, useState } from 'react';
+import {
+  ActivityIndicator,
+  FlatList,
+  Pressable,
+  RefreshControl,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
+
+import { fetchMyChatsList, type ChatListRow } from '@/core/api/chats';
+import { useAuth } from '@/core/auth/AuthContext';
+import { mapQueryError } from '@/core/errors/mapSupabaseError';
+import { tryGetSupabase } from '@/core/supabase/client';
 
 export default function ChatsScreen() {
+  const router = useRouter();
+  const { session, canCreateContent } = useAuth();
+  const [rows, setRows] = useState<ChatListRow[]>([]);
+  const [loading, setLoading] = useState(!!session);
+  const [refreshing, setRefreshing] = useState(false);
+  const [errorText, setErrorText] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    if (!session?.user?.id) {
+      setRows([]);
+      setLoading(false);
+      setErrorText(null);
+      return;
+    }
+    const sb = tryGetSupabase();
+    if (!sb) {
+      setErrorText('Добавьте ключи Supabase в .env и перезапустите приложение.');
+      setRows([]);
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    setErrorText(null);
+    const { rows: data, error } = await fetchMyChatsList(sb, session.user.id);
+    setLoading(false);
+    setRefreshing(false);
+    if (error) {
+      setErrorText(mapQueryError(error));
+      setRows([]);
+      return;
+    }
+    setRows(data);
+  }, [session]);
+
+  useFocusEffect(
+    useCallback(() => {
+      void load();
+    }, [load])
+  );
+
+  const onRefresh = useCallback(async () => {
+    if (!session) return;
+    setRefreshing(true);
+    await load();
+  }, [load, session]);
+
+  if (!session) {
+    return (
+      <View style={styles.center}>
+        <Text style={styles.title}>Чаты</Text>
+        <Text style={styles.hint}>Войдите, чтобы переписываться с владельцами объявлений.</Text>
+        <Pressable style={styles.primaryBtn} onPress={() => router.push('/(auth)/login' as Href)}>
+          <Text style={styles.primaryBtnText}>Войти</Text>
+        </Pressable>
+      </View>
+    );
+  }
+
+  if (!canCreateContent) {
+    return (
+      <View style={styles.center}>
+        <Text style={styles.title}>Чаты</Text>
+        <Text style={styles.hint}>
+          Для вашего аккаунта переписка недоступна. Если это ошибка, обратитесь в поддержку.
+        </Text>
+      </View>
+    );
+  }
+
+  if (loading && rows.length === 0) {
+    return (
+      <View style={styles.center}>
+        <ActivityIndicator size="large" />
+        <Text style={styles.loadingHint}>Загружаем диалоги…</Text>
+      </View>
+    );
+  }
+
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>Чаты</Text>
-      <Text style={styles.hint}>Диалоги с арендодателями и арендаторами — в следующих шагах.</Text>
-    </View>
+    <FlatList
+      data={rows}
+      keyExtractor={(item) => String(item.id)}
+      contentContainerStyle={rows.length === 0 ? styles.listEmptyGrow : styles.listContent}
+      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+      ListHeaderComponent={
+        errorText ? (
+          <View style={styles.bannerWrap}>
+            <Text style={styles.banner}>{errorText}</Text>
+          </View>
+        ) : null
+      }
+      renderItem={({ item }) => (
+        <Pressable
+          style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
+          onPress={() => router.push(`/chat/${item.id}` as Href)}>
+          <View style={styles.rowAvatar}>
+            <Text style={styles.rowAvatarText}>
+              {(item.peerUsername ?? '?').slice(0, 1).toUpperCase()}
+            </Text>
+          </View>
+          <View style={styles.rowBody}>
+            <Text style={styles.rowTitle} numberOfLines={1}>
+              {item.peerUsername?.trim() || 'Собеседник'}
+            </Text>
+            <Text style={styles.rowPreview} numberOfLines={2}>
+              {item.lastBody ?? 'Нет сообщений'}
+            </Text>
+          </View>
+        </Pressable>
+      )}
+      ListEmptyComponent={
+        !loading ? (
+          <View style={styles.empty}>
+            <Text style={styles.emptyTitle}>Пока нет диалогов</Text>
+            <Text style={styles.emptyHint}>
+              Откройте объявление другого пользователя и нажмите «Написать владельцу».
+            </Text>
+          </View>
+        ) : null
+      }
+    />
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    padding: 20,
+  center: { flex: 1, padding: 24, justifyContent: 'center' },
+  title: { fontSize: 22, fontWeight: '700', marginBottom: 8, textAlign: 'center' },
+  hint: { fontSize: 16, color: '#555', lineHeight: 24, textAlign: 'center', marginBottom: 24 },
+  primaryBtn: {
+    alignSelf: 'center',
+    backgroundColor: '#0d9488',
+    paddingVertical: 14,
+    paddingHorizontal: 28,
+    borderRadius: 12,
+  },
+  primaryBtnText: { color: '#fff', fontSize: 17, fontWeight: '600' },
+  loadingHint: { marginTop: 12, fontSize: 15, color: '#6b7280' },
+  listContent: { paddingBottom: 24 },
+  listEmptyGrow: { flexGrow: 1 },
+  bannerWrap: { paddingHorizontal: 16, marginBottom: 8 },
+  banner: {
+    backgroundColor: '#fef3c7',
+    color: '#92400e',
+    padding: 12,
+    borderRadius: 10,
+    overflow: 'hidden',
+  },
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    gap: 12,
+    backgroundColor: '#fff',
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#e5e7eb',
+  },
+  rowPressed: { backgroundColor: '#f9fafb' },
+  rowAvatar: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#ccfbf1',
+    alignItems: 'center',
     justifyContent: 'center',
   },
-  title: { fontSize: 22, fontWeight: '700', marginBottom: 8 },
-  hint: { fontSize: 16, color: '#555', lineHeight: 24 },
+  rowAvatarText: { fontSize: 20, fontWeight: '700', color: '#0f766e' },
+  rowBody: { flex: 1, minWidth: 0 },
+  rowTitle: { fontSize: 17, fontWeight: '600', color: '#111' },
+  rowPreview: { fontSize: 14, color: '#6b7280', marginTop: 4, lineHeight: 20 },
+  empty: { padding: 32, alignItems: 'center', justifyContent: 'center' },
+  emptyTitle: { fontSize: 18, fontWeight: '600', color: '#111' },
+  emptyHint: { marginTop: 8, fontSize: 15, color: '#6b7280', textAlign: 'center', lineHeight: 22 },
 });

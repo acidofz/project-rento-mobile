@@ -52,6 +52,7 @@ function RootLayoutNav() {
         <Stack.Screen name="terms" options={{ title: 'Правила площадки' }} />
         <Stack.Screen name="privacy" options={{ title: 'Персональные данные' }} />
         <Stack.Screen name="listing/[id]" options={{ title: 'Объявление' }} />
+        <Stack.Screen name="chat/[id]" options={{ title: 'Чат' }} />
         <Stack.Screen name="my-listings" options={{ headerShown: false }} />
       </Stack>
     </ThemeProvider>

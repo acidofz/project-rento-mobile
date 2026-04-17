@@ -13,6 +13,7 @@ import {
   View,
 } from 'react-native';
 
+import { findOrCreatePeerChat } from '@/core/api/chats';
 import { addFavorite, fetchIsFavorite, removeFavorite } from '@/core/api/favorites';
 import { fetchListingById } from '@/core/api/listings';
 import { useAuth } from '@/core/auth/AuthContext';
@@ -41,6 +42,7 @@ export default function ListingDetailScreen() {
   const [isFavorite, setIsFavorite] = useState(false);
   const [favoriteLoaded, setFavoriteLoaded] = useState(false);
   const [favoriteBusy, setFavoriteBusy] = useState(false);
+  const [openingChat, setOpeningChat] = useState(false);
 
   const load = useCallback(async () => {
     if (!validId) {
@@ -159,6 +161,28 @@ export default function ListingDetailScreen() {
     handleHeaderFavorite,
   ]);
 
+  const openChatWithOwner = useCallback(async () => {
+    if (!listing || !user) return;
+    const ownerId = listing.owner_id;
+    if (!ownerId) {
+      Alert.alert('RENTO', 'У объявления не указан владелец.');
+      return;
+    }
+    const sb = tryGetSupabase();
+    if (!sb) {
+      Alert.alert('RENTO', 'Нет подключения к серверу.');
+      return;
+    }
+    setOpeningChat(true);
+    const { chatId, error } = await findOrCreatePeerChat(sb, ownerId);
+    setOpeningChat(false);
+    if (error || chatId == null) {
+      Alert.alert('RENTO', error?.message ?? 'Не удалось открыть чат.');
+      return;
+    }
+    router.push(`/chat/${chatId}` as Href);
+  }, [listing, user, router]);
+
   if (loading) {
     return (
       <View style={styles.center}>
@@ -218,14 +242,14 @@ export default function ListingDetailScreen() {
         ) : user ? (
           canCreateContent ? (
             <Pressable
-              style={styles.primaryBtn}
-              onPress={() =>
-                Alert.alert(
-                  'RENTO',
-                  'Чат с владельцем появится в следующем обновлении. Пока свяжитесь по контактам с сайта, если они есть.'
-                )
-              }>
-              <Text style={styles.primaryBtnText}>Написать владельцу</Text>
+              style={[styles.primaryBtn, openingChat && styles.primaryBtnDisabled]}
+              onPress={() => void openChatWithOwner()}
+              disabled={openingChat}>
+              {openingChat ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <Text style={styles.primaryBtnText}>Написать владельцу</Text>
+              )}
             </Pressable>
           ) : (
             <Text style={styles.restricted}>Действия с объявлениями для вашего аккаунта ограничены.</Text>
@@ -279,7 +303,10 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
     borderRadius: 12,
     alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 52,
   },
+  primaryBtnDisabled: { opacity: 0.75 },
   primaryBtnText: { color: '#fff', fontSize: 17, fontWeight: '600' },
   secondaryBtn: {
     marginTop: 16,

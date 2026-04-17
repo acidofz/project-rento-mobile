@@ -115,3 +115,5 @@ export interface Database {
 
 export type Listing = Database['public']['Tables']['listings']['Row'];
 export type Profile = Database['public']['Tables']['profiles']['Row'];
+export type Message = Database['public']['Tables']['messages']['Row'];
+export type Chat = Database['public']['Tables']['chats']['Row'];

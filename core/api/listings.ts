@@ -92,3 +92,35 @@ export async function fetchListingById(
   }
   return { row: (data as Listing | null) ?? null, error: null };
 }
+
+const MAP_COORDS_LIMIT = 300;
+
+/**
+ * Объявления с заданными координатами (для карты). RLS: публичное чтение.
+ */
+export async function fetchListingsWithCoordinates(
+  client: SupabaseClient
+): Promise<{ rows: Listing[]; error: Error | null }> {
+  const { data, error } = await client
+    .from('listings')
+    .select('*')
+    .not('latitude', 'is', null)
+    .not('longitude', 'is', null)
+    .order('created_at', { ascending: false })
+    .limit(MAP_COORDS_LIMIT);
+
+  if (error) {
+    return { rows: [], error: new Error(error.message) };
+  }
+  const raw = (data ?? []) as Listing[];
+  const rows = raw.filter(
+    (r) =>
+      typeof r.latitude === 'number' &&
+      typeof r.longitude === 'number' &&
+      Number.isFinite(r.latitude) &&
+      Number.isFinite(r.longitude) &&
+      Math.abs(r.latitude) <= 90 &&
+      Math.abs(r.longitude) <= 180
+  );
+  return { rows, error: null };
+}
